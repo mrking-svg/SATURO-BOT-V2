@@ -1,78 +1,146 @@
+const axios = require("axios");
 const { createCanvas, loadImage } = require("canvas");
-const fs = require("fs-extra");
+const fs = require("fs");
+const path = require("path");
+
+const baseUrl = "https://raw.githubusercontent.com/Saim12678/Saim69/1a8068d7d28396dbecff28f422cb8bc9bf62d85f/font";
 
 module.exports = {
   config: {
     name: "pair6",
-    aliases: ["pr6", "pair 6"],
-    version: "1.0.0",
-    author: "Anik Islam Sadik",
-    countDown: 5,
+    aliases: ["lovepair6", "match6"],
+    author: "𝔐𝔯.𝔎𝔦𝔫𝔤",
+    version: "1.0",
     role: 0,
-    shortDescription: "Random & Reply Pair System",
     category: "love",
-    guide: "{pn}"
+    shortDescription: {
+      en: "💘 Generate a love match under cherry blossoms with circular avatars"
+    },
+    longDescription: {
+      en: "Calculates a love match between group members with custom cherry blossom background and elegantly positioned circular avatars."
+    },
+    guide: {
+      en: "{p}{n} — Find a love match"
+    }
   },
 
   onStart: async function ({ api, event, usersData }) {
     try {
-      const { threadID, senderID, messageID, participantIDs, messageReply } = event;
-      
-      // Reply System Logic
-      let targetID;
-      if (messageReply) {
-        targetID = messageReply.senderID;
-      } else {
-        const users = participantIDs.filter(id => id !== senderID && id !== api.getCurrentUserID());
-        if (!users.length) return api.sendMessage("Group e onno kono member nei!", threadID, messageID);
-        targetID = users[Math.floor(Math.random() * users.length)];
+      const senderData = await usersData.get(event.senderID);
+      let senderName = senderData.name;
+
+      const threadData = await api.getThreadInfo(event.threadID);
+      const users = threadData.userInfo;
+
+      const myData = users.find(user => user.id === event.senderID);
+      if (!myData || !myData.gender) {
+        return api.sendMessage("⚠️ Could not determine your gender.", event.threadID, event.messageID);
       }
 
-      const [name1, name2] = await Promise.all([
-        usersData.getName(senderID),
-        usersData.getName(targetID)
-      ]);
-      
-      const bg = await loadImage("https://i.imgur.com/8BgCK2I.jpeg");
-      const img1 = await loadImage(`https://graph.facebook.com/${senderID}/picture?width=512&height=512&access_token=6628568379%7Cc1e620fa708a1d5696fb991c1bde5662`);
-      const img2 = await loadImage(`https://graph.facebook.com/${targetID}/picture?width=512&height=512&access_token=6628568379%7Cc1e620fa708a1d5696fb991c1bde5662`);
+      const myGender = myData.gender.toUpperCase();
+      let matchCandidates = [];
 
-      const canvas = createCanvas(bg.width, bg.height);
+      if (myGender === "MALE") {
+        matchCandidates = users.filter(user => user.gender === "FEMALE" && user.id !== event.senderID);
+      } else if (myGender === "FEMALE") {
+        matchCandidates = users.filter(user => user.gender === "MALE" && user.id !== event.senderID);
+      } else {
+        return api.sendMessage("⚠️ Your gender is undefined. Cannot find a match.", event.threadID, event.messageID);
+      }
+
+      if (matchCandidates.length === 0) {
+        return api.sendMessage("❌ No suitable match found in the group.", event.threadID, event.messageID);
+      }
+
+      const selectedMatch = matchCandidates[Math.floor(Math.random() * matchCandidates.length)];
+      let matchName = selectedMatch.name;
+
+      let fontMap;
+      try {
+        const { data } = await axios.get(`${baseUrl}/21.json`);
+        fontMap = data;
+      } catch (e) {
+        fontMap = {};
+      }
+
+      const convertFont = (text) =>
+        text.split("").map(ch => fontMap[ch] || ch).join("");
+
+      senderName = convertFont(senderName);
+      matchName = convertFont(matchName);
+
+      const width = 736;
+      const height = 414;
+      const canvas = createCanvas(width, height);
       const ctx = canvas.getContext("2d");
-      ctx.drawImage(bg, 0, 0);
 
-      const drawPic = (img, x, y, size) => {
+      const background = await loadImage("https://i.imgur.com/4r1eplj.jpeg");
+      ctx.drawImage(background, 0, 0, width, height);
+
+      const sIdImage = await loadImage(`https://graph.facebook.com/${event.senderID}/picture?width=720&height=720&access_token=6628568379%7Cc1e620fa708a1d5696fb991c1bde5662`, {
+        headers: { "User-Agent": "Mozilla/5.0" }
+      });
+      const pairPersonImage = await loadImage(`https://graph.facebook.com/${selectedMatch.id}/picture?width=720&height=720&access_token=6628568379%7Cc1e620fa708a1d5696fb991c1bde5662`, {
+        headers: { "User-Agent": "Mozilla/5.0" }
+      });
+
+      function drawCircle(ctx, img, x, y, size) {
         ctx.save();
         ctx.beginPath();
         ctx.arc(x + size / 2, y + size / 2, size / 2, 0, Math.PI * 2);
+        ctx.closePath();
         ctx.clip();
         ctx.drawImage(img, x, y, size, size);
         ctx.restore();
-      };
 
-      // X, Y, Z(Size) Setup
-      const x1 = 80, y1 = 60, size1 = 145; // User 1 (Left)
-      const x2 = 510, y2 = 210, size2 = 150; // User 2 (Right)
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(x + size / 2, y + size / 2, size / 2, 0, Math.PI * 2);
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = "#ffb7c5";
+        ctx.stroke();
+        ctx.restore();
+      }
 
-      drawPic(img1, x1, y1, size1); 
-      drawPic(img2, x2, y2, size2); 
+      // Protidhoni ba eker opor dujon character-er mathar upor ba pashe khub shundor vabe cricle duita set kora holo
+      drawCircle(ctx, sIdImage, 180, 50, 100);
+      drawCircle(ctx, pairPersonImage, 450, 50, 100);
 
-      const pathImg = __dirname + `/cache/pair7_${senderID}.png`;
-      fs.ensureDirSync(__dirname + "/cache");
-      fs.writeFileSync(pathImg, canvas.toBuffer("image/png"));
+      const outputPath = path.join(__dirname, "pair6_output.png");
+      const out = fs.createWriteStream(outputPath);
+      const stream = canvas.createPNGStream();
+      stream.pipe(out);
 
-      // Stylish Message Body
-      const stylishBody = `✨ 🎉 𝗦𝘂𝗰𝗰𝗲𝘀𝘀𝗳𝘂𝗹 𝗣𝗮𝗶𝗿𝗶𝗻𝗴 🎉 ✨\n\n💖 ━━━  [ 👩‍❤️‍👨 ]  ━━━ 💖\n\n🥰 ${name1}\n       ❤️ 𝗫 ❤️\n😍 ${name2}\n\n💖 ━━━  [ 👩‍❤️‍👨 ]  ━━━ 💖\n\n🌸 𝗠𝗮𝘆 𝘁𝗵𝗶𝘀 𝗯𝗼𝗻𝗱 𝗯𝗲 𝗳𝗼𝗿𝗲𝘃𝗲𝗿 𝗯𝗲𝗮𝘂𝘁𝗶𝗳𝘂𝗹! 🦋`;
+      out.on("finish", () => {
+        const lovePercent = Math.floor(Math.random() * 31) + 70;
 
-      api.sendMessage({
-        body: stylishBody,
-        mentions: [{ tag: name1, id: senderID }, { tag: name2, id: targetID }],
-        attachment: fs.createReadStream(pathImg)
-      }, threadID, () => fs.unlinkSync(pathImg), messageID);
+        const message = `🌸 𝓒𝓱𝓮𝓻𝓻𝔂 𝓑𝓵𝓸𝓼𝓼𝓸𝓶 𝓛𝓸𝓿𝓮 🌸
 
-    } catch (e) {
-      console.error(e);
-      api.sendMessage("Error occurred!", event.threadID, event.messageID);
+🎀  ${senderName} ✨️
+🎀  ${matchName} ✨️
+
+🌸 𝓤𝓷𝓭𝓮𝓻 𝓽𝓱𝓮 𝓫𝓵𝓸𝓼𝓼𝓸𝓶𝓲𝓷𝓰 𝓫𝓻𝓪𝓷𝓬𝓱𝓮𝓼, 𝔂𝓸𝓾𝓻 𝓼𝓸𝓾𝓵𝓼 𝓪𝓻𝓮 𝓫𝓸𝓾𝓷𝓭 𝓽𝓸𝓰𝓮𝓽𝓱𝓮𝓻  🍡  
+
+💘 𝙲𝚘𝚖𝚙𝚊𝚝𝚒𝚋𝚒𝚕𝚒𝚝𝚢: ${lovePercent}% 💘`;
+
+        api.sendMessage(
+          {
+            body: message,
+            attachment: fs.createReadStream(outputPath),
+          },
+          event.threadID,
+          () => fs.unlinkSync(outputPath),
+          event.messageID
+        );
+      });
+
+    } catch (error) {
+      api.sendMessage(
+        "❌ An error occurred while trying to find a match.\n" + error.message,
+        event.threadID,
+        event.messageID
+      );
     }
-  }
+  },
 };
+

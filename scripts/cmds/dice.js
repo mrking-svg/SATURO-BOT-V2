@@ -1,68 +1,101 @@
-const faces = {
-  1: "⚀",
-  2: "⚁",
-  3: "⚂",
-  4: "⚃",
-  5: "⚄",
-  6: "⚅"
-};
-
 module.exports = {
   config: {
     name: "dice",
-    aliases: ["roll"],
-    version: "1.0",
-    author: "Toshiro Editz",
+    version: "1.0.0",
+    author: "Mr.king",
     countDown: 5,
     role: 0,
-    shortDescription: "Guess the dice number",
+    shortDescription: "Play dice rolling game",
     category: "game",
-    guide: "{pn} <1-6> <amount>"
+    guide: "{pn} [amount] [1-6]"
   },
 
-  onStart: async function ({ api, event, usersData, args }) {
-    try {
-      const guess = parseInt(args[0]);
-      const amount = parseInt(args[1]);
+  onStart: async function ({ api, message, event, args, usersData }) {
+    const { senderID } = event;
+    const userData = await usersData.get(senderID) || {};
+    const money = userData.money || 0;
+    const name = userData.name || "User";
 
-      if (isNaN(guess) || guess < 1 || guess > 6 || isNaN(amount) || amount <= 0) {
-        return api.sendMessage("❌ Usage: dice <1-6> <amount>", event.threadID);
-      }
-
-      const user = await usersData.get(event.senderID);
-      if (user.money < amount) {
-        return api.sendMessage(`❌ Insufficient balance! You have ${user.money} coins.`, event.threadID);
-      }
-
-      await usersData.subtractMoney(event.senderID, amount);
-
-      const diceValue = Math.floor(Math.random() * 6) + 1;
-      const diceEmoji = faces[diceValue];
-      const win = guess === diceValue;
-      const reward = win ? amount * 6 : 0;
-
-      if (win) {
-        await usersData.addMoney(event.senderID, reward);
-      }
-
-      const newUser = await usersData.get(event.senderID);
-
-      return api.sendMessage(
-`━━━━━━━━━━━━━━━━━━
-🎲 DICE ROLL
+    if (!args[0] || !args[1]) {
+      return message.reply(
+`Dice Game
 ━━━━━━━━━━━━━━━━━━
-Your Guess  : ${faces[guess]} (${guess})
-Dice Result : ${diceEmoji} (${diceValue})
-
-Status      : ${win ? "🎉 PERFECT MATCH (6x)!" : "❌ LOSE"}
-Reward      : +${reward} Coins
-New Balance : ${newUser.money} Coins
-━━━━━━━━━━━━━━━━━━`,
-        event.threadID
+Baby, usage: dice [amount] [prediction number 1-6]
+Example: dice 1M 4`
       );
-    } catch (err) {
-      console.error("Dice Error:", err);
-      return api.sendMessage("❌ Dice game failed.", event.threadID);
     }
+
+    const betAmount = parseSmartAmount(args[0]);
+    const predictNumber = parseInt(args[1]);
+
+    const maxBet = 20000000; // 20M limit
+    if (isNaN(betAmount) || betAmount <= 0) {
+      return message.reply("Baby, enter a valid amount!");
+    }
+    if (betAmount > maxBet) {
+      return message.reply(`Baby, the maximum dice limit is $${formatNumber(maxBet)}!`);
+    }
+    if (betAmount > money) {
+      return message.reply(`Baby, you only have $${formatNumber(money)}!`);
+    }
+    if (isNaN(predictNumber) || predictNumber < 1 || predictNumber > 6) {
+      return message.reply("Baby, please choose a prediction number between 1 and 6!");
+    }
+
+    const diceRoll = Math.floor(Math.random() * 6) + 1;
+    const diceEmojis = ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
+    const rolledEmoji = diceEmojis[diceRoll - 1];
+
+    let balanceChange = 0;
+    let isWin = false;
+
+    if (predictNumber === diceRoll) {
+      isWin = true;
+      balanceChange = betAmount * 5; // 5x payout for exact match
+    } else {
+      balanceChange = -betAmount;
+    }
+
+    await usersData.set(senderID, {
+      money: money + balanceChange
+    });
+
+    const resultMessage = isWin ? 
+`Dice Game Result
+━━━━━━━━━━━━━━━━━━
+User : ${name}
+Rolled : ${rolledEmoji} (${diceRoll})
+Prediction : ${predictNumber}
+Status : WINNER!
+Reward : Won $${formatNumber(betAmount * 5)} (5x)
+━━━━━━━━━━━━━━━━━━
+Maintainer : Mr.king` :
+`Dice Game Result
+━━━━━━━━━━━━━━━━━━
+User : ${name}
+Rolled : ${rolledEmoji} (${diceRoll})
+Prediction : ${predictNumber}
+Status : LOST!
+Loss : -$${formatNumber(betAmount)}
+━━━━━━━━━━━━━━━━━━
+Maintainer : Mr.king`;
+
+    return message.reply(resultMessage);
   }
 };
+
+function parseSmartAmount(str) {
+  if (typeof str !== 'string') return parseFloat(str);
+  const units = { k: 1e3, m: 1e6, b: 1e9, t: 1e12 };
+  const match = str.toLowerCase().match(/^(\d+(?:\.\d+)?)([kmbt]?)$/);
+  if (!match) return parseFloat(str);
+  return parseFloat(match[1]) * (units[match[2]] || 1);
+}
+
+function formatNumber(num) {
+  if (num >= 1e12) return (num / 1e12).toFixed(2) + "T";
+  if (num >= 1e9) return (num / 1e9).toFixed(2) + "B";
+  if (num >= 1e6) return (num / 1e6).toFixed(2) + "M";
+  if (num >= 1e3) return (num / 1e3).toFixed(2) + "K";
+  return num.toLocaleString();
+  }

@@ -1,52 +1,85 @@
-const { GoatWrapper } = require("fca-saim-x69x");
+const axios = require("axios");
+
+const API_URL = "https://stalk-six.vercel.app/api/stalk";
+
+const getImages = async (profile) => {
+  const urls = [profile.profilePictureUrl, profile.coverPhotoUrl].filter(
+    (url, index, all) => Boolean(url && url.trim()) && all.indexOf(url) === index
+  );
+  
+  const results = await Promise.all(
+    urls.map((url) =>
+      axios
+        .get(url, { responseType: "stream", timeout: 10000 })
+        .then((response) => response.data)
+        .catch(() => null)
+    )
+  );
+  return results.filter(Boolean);
+};
 
 module.exports = {
   config: {
     name: "pfp",
-    aliases: ["pp", "profile"],
-    version: "1.0",
-    author: "Saimx69x",
-    countDown: 5,
+    aliases: ["profile", "pp", "profile picture"],
+    version: "4.0.0",
+    author: "Mr.king",
     role: 0,
-    shortDescription: "Show user's profile picture",
-    longDescription: "View profile picture of yourself, a tagged user, replied user, or a specific UID.",
-    category: "image",
+    description: {
+      en: "Get user name, profile picture and cover photo"
+    },
+    category: "media",
+    countDown: 3,
     guide: {
-      en: "{pn} [@tag | reply | uid] — Show profile picture"
+      en: "{pn} | {pn} @mention | {pn} <userID> | {pn} <profileURL> | reply + {pn}"
     }
   },
 
-  onStart: async function ({ event, message, args, usersData }) {
+  onStart: async ({ event, message, args = [] }) => {
     try {
-      let targetID;
+      const { senderID, messageReply } = event;
+      const mentionID = Object.keys(event.mentions || {})[0];
+      const input = String(args[0] || "").trim();
+      let query = mentionID || messageReply?.senderID || senderID;
 
-      if (event.type === "message_reply") {
-        targetID = event.messageReply.senderID;
-      } 
-      else if (Object.keys(event.mentions)[0]) {
-        targetID = Object.keys(event.mentions)[0];
-      } 
-      else if (args[0] && !isNaN(args[0])) {
-        targetID = args[0];
-      } 
-      else {
-        targetID = event.senderID;
+      if (/^\d+$/.test(input) || /^https?:\/\/(?:www\.|m\.)?facebook\.com\//i.test(input)) {
+        query = input;
       }
 
-      const name = await usersData.getName(targetID).catch(() => "Unknown User");
-      const avatarURL = await usersData.getAvatarUrl(targetID);
-
-      return message.reply({
-        body: `🖼️ 𝑷𝒓𝒐𝒇𝒊𝒍𝒆 𝑷𝒊𝒄𝒕𝒖𝒓𝒆 𝒐𝒇\n💫 ${name} (${targetID})`,
-        attachment: await global.utils.getStreamFromURL(avatarURL)
+      const response = await axios.get(API_URL, {
+        params: { userId: String(query) },
+        timeout: 15000
       });
 
-    } catch (err) {
-      console.error(err);
-      return message.reply("❌ Could not fetch the profile picture. Maybe UID is invalid or privacy blocked.");
+      const profile = response.data?.data;
+      if (!profile || typeof profile !== "object") {
+        return message.reply("❌ No profile data found for this user.");
+      }
+
+      const name = profile.name || "Facebook User";
+      const images = await getImages(profile);
+
+      const caption = 
+`𓍢ִ໋🌸✧ ── ͟͟͞͞Pʀᴏғɪʟᴇ & Cᴏᴠᴇʀ ── ✧🌸𓍢ִ໋🌷͙֒  
+
+ᥫ᭡ U sᴇʀ N ᴀᴍᴇ : ${name}
+ᥫ᭡ U ID : ${profile.userId || query}`;
+
+      if (!images.length) {
+        return message.reply(`${caption}\n\n⚠️ Profile or cover image not accessible.`);
+      }
+
+      return message.reply({
+        body: caption,
+        attachment: images
+      });
+    } catch (error) {
+      console.error("[pfp]", error.message);
+      if (["ECONNABORTED", "ETIMEDOUT"].includes(error.code)) {
+        return message.reply("⚠️ Request timed out. Please try again.");
+      }
+      return message.reply("❌ Could not fetch profile picture/cover. Please try again.");
     }
   }
 };
-
-const wrapper = new GoatWrapper(module.exports);
-wrapper.applyNoPrefix({ allowPrefix: true });
+      

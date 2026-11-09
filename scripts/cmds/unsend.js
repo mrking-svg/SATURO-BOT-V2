@@ -1,7 +1,7 @@
-module.exports = {
+const { GoatWrapper } = require("fca-saim-x69x");module.exports = {
 	config: {
 		name: "unsend",
-		aliases: ["u","r","uns"],
+		aliases: ["rmv", "uns", "remove"],
 		version: "1.2",
 		author: "NTKhang",
 		countDown: 5,
@@ -32,3 +32,5 @@ module.exports = {
 		message.unsend(event.messageReply.messageID);
 	}
 };
+const wrapper = new GoatWrapper(module.exports);
+wrapper.applyNoPrefix({ allowPrefix: true });

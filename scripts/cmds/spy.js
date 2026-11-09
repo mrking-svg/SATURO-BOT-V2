@@ -1,147 +1,151 @@
+const axios = require("axios");
+
+const API_URL = "https://stalk-six.vercel.app/api/stalk";
+const MEDIA_FIELDS = new Set([
+  "profilePictureUrl", "profilePictureWidth", "profilePictureHeight",
+  "coverPhotoUrl", "coverPhotoWidth", "coverPhotoHeight"
+]);
+const LABELS = {
+  userId: "UID",
+  name: "Name",
+  bio: "Bio",
+  location: "City",
+  hometown: "Hometown",
+  workplace: "Workplace",
+  education: "Education",
+  gender: "Gender",
+  relationship: "Relationship",
+  birthday: "Birthday",
+  friends: "Followers/Friends",
+  website: "Website",
+  profileLink: "Profile",
+  partner: "Partner"
+};
+
+const present = value => {
+  if (value == null) return false;
+  if (typeof value === "string") {
+    const text = value.trim();
+    return Boolean(text && !/^(?:no ?data|n\/?a|null|undefined|unknown)$/i.test(text));
+  }
+  if (Array.isArray(value)) return value.some(present);
+  if (typeof value === "object") return Object.values(value).some(present);
+  return true;
+};
+
+const label = key => LABELS[key] || key
+  .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+  .replace(/[_-]+/g, " ")
+  .replace(/\b\w/g, char => char.toUpperCase());
+
+const valueText = value => {
+  if (Array.isArray(value)) return value.map(valueText).filter(Boolean).join(", ");
+  if (typeof value === "object") {
+    return Object.entries(value)
+      .filter(([, item]) => present(item))
+      .map(([key, item]) => `${label(key)}: ${valueText(item)}`)
+      .join(", ");
+  }
+  return String(value).trim();
+};
+
+const profileLines = profile => Object.entries(profile)
+  .filter(([key, value]) => !MEDIA_FIELDS.has(key) && present(value))
+  .map(([key, value]) => `${label(key)}: ${valueText(value)}`);
+
+const compactMoney = value => {
+  let amount = Number(value) || 0;
+  const units = ["", "K", "M", "B", "T"];
+  let unit = 0;
+  while (Math.abs(amount) >= 1000 && unit < units.length - 1) {
+    amount /= 1000;
+    unit++;
+  }
+  return `${amount.toFixed(amount % 1 ? 1 : 0)}${units[unit]}`;
+};
+
+const getImages = async profile => {
+  const urls = [profile.profilePictureUrl, profile.coverPhotoUrl]
+    .filter((url, index, all) => present(url) && all.indexOf(url) === index);
+  const results = await Promise.all(urls.map(url =>
+    axios.get(url, { responseType: "stream", timeout: 10000 })
+      .then(response => response.data)
+      .catch(() => null)
+  ));
+  return results.filter(Boolean);
+};
+
 module.exports = {
   config: {
     name: "spy",
-    version: "2.0",
+    aliases: ["stalk"],
+    version: "10.1.1",
     role: 0,
-    author: "Anik Islam Sadik",
-    description: "Get user information and profile photo",
-    category: "information",
+    author: "Rafix4x",
+    description: "View all public profile data and bot statistics",
+    category: "info",
     countDown: 5,
+    guide: { en: "{pn} | {pn} @mention | {pn} <userID> | {pn} <profileURL> | reply + {pn}" }
   },
 
-  onStart: async function ({ event, message, usersData, api, args, threadsData }) {
+  onStart: async ({ event, message, usersData, threadsData, args = [] }) => {
     try {
-      const uid1 = event.senderID;
-      const uid2 = Object.keys(event.mentions)[0];
-      let uid;
+      const { threadID, senderID, messageReply } = event;
+      const mentionID = Object.keys(event.mentions || {})[0];
+      const input = String(args[0] || "").trim();
+      let query = mentionID || messageReply?.senderID || senderID;
 
-      if (args[0]) {
-        if (/^\d+$/.test(args[0])) {
-          uid = args[0];
-        } else {
-          const match = args[0].match(/profile\.php\?id=(\d+)/);
-          if (match) uid = match[1];
-        }
+      if (/^\d+$/.test(input) || /^https?:\/\/(?:www\.|m\.)?facebook\.com\//i.test(input)) {
+        query = input;
       }
 
-      if (!uid) {
-        uid = event.type === "message_reply"
-          ? event.messageReply.senderID
-          : uid2 || uid1;
-      }
-
-      let userInfo;
-      try {
-        userInfo = await api.getUserInfo(uid);
-      } catch (e) {
-        return message.reply("❌ | Failed to fetch user information.");
-      }
-
-      let avatarUrl;
-      try {
-        avatarUrl = await usersData.getAvatarUrl(uid);
-      } catch (e) {
-        avatarUrl = null;
-      }
-
-      const uInfo = userInfo[uid] || {};
-      
-      let gender = "Unknown";
-      let genderEmoji = "🤷‍♂️";
-      
-      if (uInfo.gender !== undefined) {
-        const g = String(uInfo.gender).toLowerCase();
-        if (g === "female" || g === "f" || g === "1") { 
-          gender = "Female"; 
-          genderEmoji = "🙋‍♀️";
-        } else if (g === "male" || g === "m" || g === "2") { 
-          gender = "Male"; 
-          genderEmoji = "🙋‍♂️";
-        }
-      }
-
-      const genderText = `${genderEmoji} 𝐆𝐞𝐧𝐝𝐞𝐫: ${gender}`;
-      
-      const vipList = global.GoatBot?.config?.vipuser || 
-                      global.GoatBot?.config?.vipUser || 
-                      global.GoatBot?.config?.vip || 
-                      [];
-      const isVip = Array.isArray(vipList) && vipList.includes(uid);
-      const vipEmoji = isVip ? "✅ 𝐘𝐞𝐬" : "❌ 𝐍𝐨";
-      
-      let money = 0, exp = 0, level = 1, userData = {};
-      try {
-        userData = await usersData.get(uid) || {};
-        money = userData.money || 0;
-        exp = userData.exp || 0;
-        level = userData.level || 1;
-      } catch (e) {}
-      
-      let joinedDate = "N/A";
-      try {
-        const moment = require("moment");
-        joinedDate = moment(userData.createdAt || Date.now()).format("DD/MM/YYYY");
-      } catch (e) {
-        joinedDate = "N/A";
-      }
-      
-      let allUser = [], rank = "?", moneyRank = "?";
-      try {
-        allUser = await usersData.getAll();
-        rank = allUser.sort((a, b) => (b.exp || 0) - (a.exp || 0)).findIndex(u => u.userID === uid) + 1;
-        moneyRank = allUser.sort((a, b) => (b.money || 0) - (a.money || 0)).findIndex(u => u.userID === uid) + 1;
-      } catch (e) {}
-      
-      const vanity = uInfo.vanity || "None";
-      const isFriend = uInfo.isFriend ? "✅ 𝐘𝐞𝐬" : "❎ 𝐍𝐨";
-      const isBirthday = uInfo.isBirthday ? "🎂 𝐓𝐨𝐝𝐚𝐲!" : "❌ 𝐍𝐨";
-      
-      let isAdmin = "N/A";
-      if (event.threadID) {
-        try {
-          const threadInfo = await threadsData.get(event.threadID);
-          if (threadInfo?.adminIDs) {
-            isAdmin = threadInfo.adminIDs.includes(uid) ? "✅ 𝐘𝐞𝐬" : "❎ 𝐍𝐨";
-          }
-        } catch (e) {}
-      }
-
-      const userInformation = `
-╭━〔 ✦ 𝐔𝐒𝐄𝐑 𝐈𝐍𝐅𝐎 ✦ 〕━⬣
-┃ 👤 𝐍𝐚𝐦𝐞: ${uInfo.name || "𝐔𝐧𝐤𝐧𝐨𝐰𝐧"}
-┃  ${genderText}
-┃ 🆔 𝐔𝐈𝐃: ${uid}
-┃ 🔖 𝐔𝐬𝐞𝐫𝐧𝐚𝐦𝐞: ${vanity}
-┃ 🎂 𝐁𝐢𝐫𝐭𝐡𝐝𝐚𝐲 𝐓𝐨𝐝𝐚𝐲: ${isBirthday}
-┃ 👫 𝐅𝐫𝐢𝐞𝐧𝐝 𝐰𝐢𝐭𝐡 𝐛𝐨𝐭: ${isFriend}
-┃ 👑 𝐕𝐈𝐏 𝐔𝐬𝐞𝐫?: ${vipEmoji}
-┃ 📅 𝐉𝐨𝐢𝐧𝐞𝐝: ${joinedDate}
-┣━〔 ✦ 𝐒𝐓𝐀𝐓𝐒 ✦ 〕━⬣
-┃ 💰 𝐌𝐨𝐧𝐞𝐲: $${money.toLocaleString()}
-┃ ⭐ 𝐄𝐗𝐏: ${exp.toLocaleString()}
-┃ 🎯 𝐋𝐞𝐯𝐞𝐥: ${level}
-┃ 🏆 𝐑𝐚𝐧𝐤: #${rank}/${allUser.length || "?"}
-┃ 💵 𝐌𝐨𝐧𝐞𝐲 𝐑𝐚𝐧𝐤: #${moneyRank}/${allUser.length || "?"}
-┣━〔 ✦ 𝐆𝐑𝐎𝐔𝐏 ✦ 〕━⬣
-┃ 👑 𝐀𝐝𝐦𝐢𝐧 𝐡𝐞𝐫𝐞: ${isAdmin}
-╰━━━━━━━━━━━━━━━━⬣`;
-
-      let attachments = [];
-      if (avatarUrl) {
-        try {
-          const stream = await global.utils.getStreamFromURL(avatarUrl);
-          if (stream) attachments.push(stream);
-        } catch (e) {}
-      }
-
-      await message.reply({
-        body: userInformation,
-        attachment: attachments.length > 0 ? attachments : undefined
+      const response = await axios.get(API_URL, {
+        params: { userId: String(query) },
+        timeout: 15000
       });
+      const profile = response.data?.data;
+      if (!profile || typeof profile !== "object") return message.reply("No profile data found.");
 
+      const targetID = present(profile.userId)
+        ? String(profile.userId)
+        : (/^\d+$/.test(String(query)) ? String(query) : null);
+      const [user, thread, allUsers, images] = await Promise.all([
+        targetID ? usersData.get(targetID).catch(() => null) : null,
+        threadsData.get(threadID).catch(() => null),
+        targetID ? usersData.getAll().catch(() => []) : [],
+        getImages(profile)
+      ]);
+
+      const exp = Number(user?.exp) || 0;
+      const balance = Number(user?.money) || 0;
+      const knownUser = targetID && allUsers.some(item => String(item.userID) === targetID);
+      const member = thread?.members?.find(item => String(item.userID) === targetID);
+      const isAdmin = (thread?.adminIDs || []).some(item => String(item?.id ?? item) === targetID);
+      const nickname = member?.nickname || thread?.nicknames?.[targetID];
+      const botLines = targetID ? [
+        "BOT STATS",
+        `Money: $${compactMoney(balance)}`,
+        `Level: ${Math.floor((Math.sqrt(1 + 0.4 * exp) + 1) / 2)}`,
+        knownUser && `EXP rank: #${1 + allUsers.filter(item => (Number(item.exp) || 0) > exp).length}`,
+        knownUser && `Money rank: #${1 + allUsers.filter(item => (Number(item.money) || 0) > balance).length}`
+      ].filter(Boolean) : [];
+      const groupLines = member ? [
+        "GROUP INFO",
+        present(nickname) && `Nickname: ${nickname}`,
+        `Role: ${isAdmin ? "Admin" : "Member"}`,
+        `Messages: ${Number(member.count) || 0}`
+      ].filter(Boolean) : [];
+      const sections = [["PROFILE INFO", ...profileLines(profile)], botLines, groupLines]
+        .filter(section => section.length);
+      const body = sections.map(section => section.join("\n")).join("\n\n");
+
+      return message.reply(images.length ? { body, attachment: images } : body);
     } catch (error) {
-      console.error("Spy command error:", error);
-      return message.reply("❌ | An error occurred.");
+      console.error("[spy]", error.message);
+      if (["ECONNABORTED", "ETIMEDOUT"].includes(error.code)) {
+        return message.reply("Profile lookup timed out. Try again.");
+      }
+      return message.reply("Could not load this profile. Try again.");
     }
-  },
+  }
 };
